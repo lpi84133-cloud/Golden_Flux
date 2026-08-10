@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# Android Studio
+*.class
+*.dex
+*.ap_
+
+# Release artifacts (stored outside VCS)
+*.apk
+*.aab
+*.aar
+
+# Keystore — never commit to VCS; keep separately
+*.jks
+*.keystore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kotlin / Java
+*.kotlin_module
