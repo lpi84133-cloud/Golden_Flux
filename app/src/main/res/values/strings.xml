@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">Golden Flux</string>
+
+    <!-- Gray-flow user-facing strings (kept minimal and localisable). -->
+    <string name="flux_retry">RETRY</string>
+    <string name="flux_connecting">Connecting…</string>
+    <string name="flux_accept">ACCEPT</string>
+    <string name="flux_skip">SKIP</string>
+    <string name="flux_loading">Loading</string>
 </resources>

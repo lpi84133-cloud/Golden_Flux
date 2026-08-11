@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ SplashScreen theme.
+
+    The three attributes below are the entire contract:
+      windowSplashScreenBackground        the plate colour
+      windowSplashScreenAnimatedIcon      the centred logo drawable
+                                           (MUST be <adaptive-icon>)
+      windowSplashScreenAnimationDuration only if the icon animates
+
+    The logo is drawn on a 288dp × 288dp plate; only the centre 192dp is
+    guaranteed visible after the mask, so the drawable itself carries the
+    same 14% inset used by the launcher icon and the two match by pixel.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.Flux.Launch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/launch_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+
+        <!-- Once the launch is over, hand off to the fullscreen Flux theme. -->
+        <item name="postSplashScreenTheme">@style/Theme.Flux.Fullscreen</item>
+
+        <item name="android:statusBarColor">@color/launch_bg</item>
+        <item name="android:navigationBarColor">@color/launch_bg</item>
+    </style>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Dark-mode splash. Identical to the light-mode variant: the launch
+    plate is already dark enough that a further "night" tone would clash
+    with the launcher icon a user just tapped. Kept as an explicit file
+    so a future night-only tweak has an obvious home.
+-->
+<resources>
+    <style name="Theme.Flux.Launch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/launch_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.Flux.Fullscreen</item>
+        <item name="android:statusBarColor">@color/launch_bg</item>
+        <item name="android:navigationBarColor">@color/launch_bg</item>
+    </style>
+</resources>

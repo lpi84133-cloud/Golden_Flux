@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ splash logo.
+
+    Must be an <adaptive-icon>. A plain PNG here is silently rejected by
+    the SplashScreen API — it falls back to the launcher icon, and the
+    system ships a heavily clipped composite. Keeping this file identical
+    to mipmap/ic_launcher.xml guarantees the splash logo and the home-
+    screen icon are the same picture.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/launch_bg" />
+    <foreground>
+        <inset
+            android:drawable="@drawable/ic_launcher_art"
+            android:inset="14%" />
+    </foreground>
+</adaptive-icon>

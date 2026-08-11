@@ -19,6 +19,13 @@ local.properties
 # Keystore — never commit to VCS; keep separately
 *.jks
 *.keystore
+keystore/keystore.properties
+
+# Per-install fingerprint — seed and credentials
+flux.properties
+
+# Firebase (project-specific)
+app/google-services.json
 
 # OS
 .DS_Store

@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Copy this file to  flux.properties  and fill in real values before building.
+#  flux.properties is git-ignored — the seed and credentials never touch VCS.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Generate with:  ./gradlew fluxSeed
+flux.seed = CHANGE-ME-EVERY-BUILD
+
+flux.bundleId    = com.goldenflux.goldenfluxgame
+flux.appLabel    = Golden Flux
+flux.versionCode = 1
+flux.versionName = 1.0.0
+
+flux.uplinkUrl       = https://goldenfllux.com/config.php
+flux.trackerKey      =
+flux.firebaseProject =
+flux.gcdBase         = https://gcdsdk.appsflyer.com/install_data/v4.0/
+
+flux.allowedHosts = goldenfllux.com
+
+flux.oneLinkHost   = nolink.invalid
+flux.oneLinkVerify = false
+
+flux.uaAppSuffix = false
+flux.uaAppToken  = GoldenFlux
+
+flux.debugForceUrl =

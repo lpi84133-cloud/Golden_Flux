@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    API 26+ adaptive launcher icon.
+
+    The launcher expands each layer to 108dp and then clips with whatever
+    mask the OEM ships — a circle on Pixel, a squircle on Samsung, a
+    teardrop on some skins. If the art fills the full 108dp its edges are
+    eaten by the round mask (the corners of the shield are the first thing
+    to go). Wrapping the art in an <inset> keeps 14% of the canvas as safe
+    padding on every side, so nothing important reaches the mask boundary.
+
+    Values chosen: inset 14% (adaptive-icon safe zone is 66/108 = 61%; at
+    14% inset the art occupies 72% of the canvas — clear of both circle
+    and squircle masks). Tune to 17–19% if the round mask still clips the
+    letter; drop to 10–12% if the art looks too small inside the shield.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <background android:drawable="@color/launch_bg" />
+    <foreground>
+        <inset
+            android:drawable="@drawable/ic_launcher_art"
+            android:inset="14%" />
+    </foreground>
 </adaptive-icon>
