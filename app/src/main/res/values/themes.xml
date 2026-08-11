@@ -22,7 +22,7 @@
     </style>
 
     <!--
-        Theme for LaunchArbiter (the launcher activity). On API < 31 this
+        Theme for MainActivity (the launcher activity). On API < 31 this
         is just a fullscreen Flux theme with the branded background so no
         white flash occurs before our own LaunchSplash draws. On API 31+
         the values-v31 override adds the SplashScreen attributes.

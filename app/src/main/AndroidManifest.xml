@@ -39,7 +39,7 @@
              API 31+; on older versions it degrades to a fullscreen theme
              with the branded background colour. -->
         <activity
-            android:name=".flux.entry.LaunchArbiter"
+            android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="fullSensor"
@@ -77,9 +77,9 @@
             android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:theme="@style/Theme.Flux.Stage" />
 
-        <!-- Game — NOT the launcher any more; started by LaunchArbiter. -->
+        <!-- Game — NOT the launcher any more; started by MainActivity (router). -->
         <activity
-            android:name=".MainActivity"
+            android:name=".GameActivity"
             android:exported="false"
             android:launchMode="singleTop"
             android:screenOrientation="portrait"

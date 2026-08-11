@@ -10,7 +10,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.goldenflux.goldenfluxgame.BuildConfig
 import com.goldenflux.goldenfluxgame.R
-import com.goldenflux.goldenfluxgame.flux.entry.LaunchArbiter
+import com.goldenflux.goldenfluxgame.MainActivity
 import com.goldenflux.goldenfluxgame.flux.store.FluxStore
 import com.goldenflux.goldenfluxgame.flux.util.HostGate
 import com.goldenflux.goldenfluxgame.flux.util.Tracer
@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *  - a warm URL (shell alive) goes straight to [WarmSignal] and is never
  *    persisted; the notification is suppressed so no tray badge stays after
  *    delivery;
- *  - a cold URL is stored and consumed exactly once by [LaunchArbiter];
+ *  - a cold URL is stored and consumed exactly once by [MainActivity];
  *  - a NATIVE user keeps their game — a URL becomes a harmless notification
  *    and the tap opens the launcher instead of the WebView. Turning a NATIVE
  *    user into a WebView after the fact is a store-review problem, not a
@@ -73,7 +73,7 @@ class FluxPushService : FirebaseMessagingService() {
 
         // Warm hand-off works only for STREAM installs. NATIVE stays native
         // while foregrounded — a targeted URL only overrides on an explicit
-        // notification tap (handled by LaunchArbiter's cold-push branch).
+        // notification tap (handled by MainActivity's cold-push branch).
         if (urlAllowed && stage == FluxStore.Stage.STREAM && WarmSignal.onLive != null) {
             val delivered = runCatching { WarmSignal.offer(rawUrl) }.getOrDefault(false)
             if (delivered) return
@@ -81,7 +81,7 @@ class FluxPushService : FirebaseMessagingService() {
 
         // Cold-push stash: keep the URL for EVERY stage (including NATIVE),
         // so the tap-intent can flip a stale NATIVE lock and route to the
-        // shell. LaunchArbiter guards the actual navigation.
+        // shell. MainActivity guards the actual navigation.
         val stashUrl = if (urlAllowed) rawUrl else ""
         if (stashUrl.isNotEmpty()) store.pendingColdPush = stashUrl
 
@@ -95,10 +95,10 @@ class FluxPushService : FirebaseMessagingService() {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(nm)
 
-        val tap = Intent(ctx, LaunchArbiter::class.java).apply {
+        val tap = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (url.isNotBlank()) putExtra(LaunchArbiter.EXTRA_PUSH_URL, url)
-            putExtra(LaunchArbiter.EXTRA_FROM_PUSH, true)
+            if (url.isNotBlank()) putExtra(MainActivity.EXTRA_PUSH_URL, url)
+            putExtra(MainActivity.EXTRA_FROM_PUSH, true)
         }
         val pi = PendingIntent.getActivity(
             ctx, System.currentTimeMillis().toInt(), tap,

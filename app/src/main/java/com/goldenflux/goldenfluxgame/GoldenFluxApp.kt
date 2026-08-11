@@ -21,7 +21,7 @@ import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderF
  *    attribution (pitfalls #19).
  *
  * The game itself has no dependency on this class; the game's Activity is
- * launched by [flux.entry.LaunchArbiter] once the routing decision is made.
+ * launched by [MainActivity] once the routing decision is made.
  */
 class GoldenFluxApp : Application() {
 

@@ -17,7 +17,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.goldenflux.goldenfluxgame.R
-import com.goldenflux.goldenfluxgame.flux.entry.LaunchArbiter
+import com.goldenflux.goldenfluxgame.MainActivity
 import com.goldenflux.goldenfluxgame.flux.link.LinkMonitor
 import com.goldenflux.goldenfluxgame.flux.util.Immersive
 import kotlinx.coroutines.CoroutineScope
@@ -116,7 +116,7 @@ class OfflineActivity : AppCompatActivity() {
                     // its first decision. Sending the router through from
                     // the top is the only path that gets AppsFlyer asked
                     // properly (pitfalls #19a, #20).
-                    Intent(this@OfflineActivity, LaunchArbiter::class.java)
+                    Intent(this@OfflineActivity, MainActivity::class.java)
                         .setFlags(FLAG_ACTIVITY_CLEAR_TASK or FLAG_ACTIVITY_NEW_TASK)
                 }
                 startActivity(next)
