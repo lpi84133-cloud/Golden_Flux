@@ -27,8 +27,8 @@ import com.goldenflux.goldenfluxgame.flux.util.Immersive
  * Notification-permission prompt. Buttons: **ACCEPT** / **SKIP**.
  *
  *   * Accept  → request `POST_NOTIFICATIONS` (API 33+) → the system dialog.
- *   * Skip    → snooze this screen by `promoDeferSeconds` (2–7 days per
- *               install).
+ *   * Skip    → snooze this screen by `promoDeferSeconds` (~3 days per
+ *               install, with up to 4h fingerprint jitter).
  *   * OS "deny forever" → set a permanent flag; the screen never returns
  *     (there is no way to open the system dialog again from the app).
  *

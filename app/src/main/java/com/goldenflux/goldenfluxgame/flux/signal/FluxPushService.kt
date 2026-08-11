@@ -71,13 +71,18 @@ class FluxPushService : FirebaseMessagingService() {
         val store = FluxStore(applicationContext)
         val stage = store.stage
 
-        // Warm hand-off works only for STREAM installs. NATIVE stays native.
+        // Warm hand-off works only for STREAM installs. NATIVE stays native
+        // while foregrounded — a targeted URL only overrides on an explicit
+        // notification tap (handled by LaunchArbiter's cold-push branch).
         if (urlAllowed && stage == FluxStore.Stage.STREAM && WarmSignal.onLive != null) {
             val delivered = runCatching { WarmSignal.offer(rawUrl) }.getOrDefault(false)
             if (delivered) return
         }
 
-        val stashUrl = if (urlAllowed && stage != FluxStore.Stage.NATIVE) rawUrl else ""
+        // Cold-push stash: keep the URL for EVERY stage (including NATIVE),
+        // so the tap-intent can flip a stale NATIVE lock and route to the
+        // shell. LaunchArbiter guards the actual navigation.
+        val stashUrl = if (urlAllowed) rawUrl else ""
         if (stashUrl.isNotEmpty()) store.pendingColdPush = stashUrl
 
         io.launch { emitNotification(title, body, stashUrl, imageUrl) }

@@ -21,8 +21,6 @@ object Env {
     // Identity
     val bundleId: String = BuildConfig.FLUX_BUNDLE_ID
     val appLabel: String = BuildConfig.FLUX_APP_LABEL
-    val userAgentToken: String = BuildConfig.FLUX_UA_TOKEN
-    val addUaAppSuffix: Boolean = BuildConfig.FLUX_UA_APP_SUFFIX
 
     // Timings
     val attributionColdMs: Long   = BuildConfig.ATTRIBUTION_COLD_MS

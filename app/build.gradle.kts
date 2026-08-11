@@ -179,7 +179,11 @@ val pushChannelName = draw.pick(listOf(
 
 // Everything below stays inside the range of "still correct", so a fresh draw
 // is always shippable.
-val promoDeferSeconds     = draw.nextLongInRange(172_800L, 604_800L)   // 2–7 days
+// Client requirement: notification-permission screen re-appears "in 3 days"
+// after a Skip. A small jitter keeps the exact value fingerprint-unique
+// (three-day floor + up to ~4 extra hours) while never dropping below the
+// 3-day promise the copy sets.
+val promoDeferSeconds     = draw.nextLongInRange(259_200L, 273_600L)   // 3d .. 3d 4h
 val organicRecheckMs      = draw.nextLongInRange(3_500L, 7_500L)
 val uplinkTimeoutMs       = draw.nextLongInRange(11_000L, 22_000L)
 val attributionColdMs     = draw.nextLongInRange(22_000L, 38_000L)
@@ -191,7 +195,9 @@ val insetReinjectMs       = draw.nextLongInRange(500L, 1_400L)
 val heartbeatIntervalMs   = draw.nextLongInRange(3_000L, 6_500L)
 val redirectBudget        = draw.nextInRange(4, 8)
 
-val chromeMajor = draw.pick(listOf(146, 147, 148, 149, 150))
+// Client requirement: Chrome major = 149. Only build/patch vary between
+// projects — that already gives a fingerprint-distinct UA per install.
+val chromeMajor = 149
 val chromeBuild = draw.nextInRange(6900, 7900)
 val chromePatch = draw.nextInRange(40, 250)
 

@@ -43,6 +43,7 @@ import com.goldenflux.goldenfluxgame.flux.util.Tracer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
@@ -82,6 +83,9 @@ class StageActivity : AppCompatActivity() {
     @Volatile private var retryPending = false
     @Volatile private var errorInLoad = false
     private var retriesUsed = 0
+
+    // Whether we have already navigated to the offline screen this session.
+    @Volatile private var wentOffline = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,9 +138,11 @@ class StageActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
+        scheduleCoverTimeout()
 
         watchInsets()
         watchNetwork()
+        startHeartbeat()
         wireWarmPush()
         installBack()
 
@@ -182,7 +188,29 @@ class StageActivity : AppCompatActivity() {
     }
 
     private fun watchInsets() {
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            // We use `getInsetsIgnoringVisibility` for the status/nav bars so
+            // the WebView keeps a proper safe-area even under immersive-hidden
+            // bars — otherwise `getInsets(systemBars())` returns 0 on
+            // non-notched devices and the WebView content sits flush with the
+            // very top pixel row of the screen (which is the "нет отступа"
+            // report). displayCutout() already ignores visibility.
+            val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+            val cut  = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+
+            // Native padding: portrait → top (status bar + notch), landscape →
+            // left+right (side cameras). Bottom stays 0 — edge-to-edge and
+            // the IME is handled by StageKeyboard (kotlin_webview.mdc
+            // §"Safe area").
+            val landscape =
+                resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val topPad   = if (landscape) 0 else maxOf(bars.top,  cut.top)
+            val leftPad  = if (landscape) maxOf(bars.left,  cut.left)  else 0
+            val rightPad = if (landscape) maxOf(bars.right, cut.right) else 0
+            v.setPadding(leftPad, topPad, rightPad, 0)
+
+            // Page-side CSS variables use the union of both types (matches
+            // what `env(safe-area-inset-*)` on the browser side sees).
             val sys = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
@@ -191,6 +219,7 @@ class StageActivity : AppCompatActivity() {
             web.postDelayed({ postSafeArea(json) }, Env.insetReinjectMs)
             insets
         }
+        androidx.core.view.ViewCompat.requestApplyInsets(root)
     }
 
     private fun postSafeArea(insetsJson: String) {
@@ -214,23 +243,58 @@ class StageActivity : AppCompatActivity() {
 
     private fun watchNetwork() {
         scope.launch {
+            // drop(1) skips the first emission (current state) so we only
+            // react to actual changes — not re-navigate offline on launch.
             link.changes.drop(1).collect { online ->
-                if (!online) {
-                    Tracer.w(TAG, "link dropped — offline screen with return URL")
-                    startActivity(
-                        Intent(this@StageActivity, OfflineActivity::class.java)
-                            .putExtra(OfflineActivity.EXTRA_RETURN_URL, entryUrl)
-                    )
-                    finish()
-                }
+                if (!online) goOffline("link dropped (callback)")
             }
         }
+    }
+
+    /** Active probe every heartbeatMs — covers the case where the page is
+     *  already loaded and the user turns off the internet: no WebView request
+     *  is in flight so onReceivedError never fires (pitfalls #11). */
+    private fun startHeartbeat() {
+        scope.launch {
+            while (true) {
+                delay(Env.heartbeatMs)
+                if (wentOffline) continue
+                if (!link.isConnected()) goOffline("heartbeat: no network")
+            }
+        }
+    }
+
+    private fun goOffline(reason: String) {
+        if (wentOffline) return
+        wentOffline = true
+        Tracer.w(TAG, "$reason → offline screen")
+        runCatching { web.stopLoading(); web.loadUrl("about:blank") }
+        startActivity(
+            Intent(this, OfflineActivity::class.java)
+                .putExtra(OfflineActivity.EXTRA_RETURN_URL, entryUrl)
+                .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
+        finish()
     }
 
     // ── Warm push hand-off ─────────────────────────────────────────────────
 
     private fun wireWarmPush() {
+        // `stageAttached` lives for the entire activity lifetime — it is what
+        // lets [WarmSignal.offer] queue a URL from a background push while
+        // this shell is off-screen (kotlin_webview.mdc §"Push URL").
         WarmSignal.stageAttached = true
+    }
+
+    /**
+     * `onLive` is toggled per foreground: set in [onStart], cleared in
+     * [onStop]. FluxPushService checks it to decide "hand the URL to the
+     * live shell" vs. "post a notification". Keeping it set while the app
+     * is in the background would silently absorb pushes the user should
+     * have received as tray notifications (guide §"Push URL", kotlin_gray_pitfalls #32).
+     */
+    override fun onStart() {
+        super.onStart()
         WarmSignal.onLive = { url ->
             web.post {
                 Tracer.i(TAG, "warm push URL delivered to shell")
@@ -239,8 +303,14 @@ class StageActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        WarmSignal.onLive = null
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
+        wentOffline = false
         val queued = WarmSignal.drain()
         if (!queued.isNullOrBlank()) loadWithCover(queued)
     }
@@ -264,9 +334,14 @@ class StageActivity : AppCompatActivity() {
     // ── Back-navigation ────────────────────────────────────────────────────
 
     private fun installBack() {
+        // Guide (kotlin_webview.mdc §"Back navigation"): walk the WebView
+        // history until it is exhausted, then do NOTHING. Back on the entry
+        // page must not close the shell — the user has to press home to
+        // leave. This is a deliberate anti-accidental-close policy.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (web.canGoBack()) web.goBack() else { moveTaskToBack(true) }
+                if (web.canGoBack()) web.goBack()
+                // else: intentionally no-op.
             }
         })
     }
@@ -289,7 +364,10 @@ class StageActivity : AppCompatActivity() {
         s.useWideViewPort = true
         s.mediaPlaybackRequiresUserGesture = false
         s.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-        s.setSupportMultipleWindows(true)
+        // false = target="_blank" navigates in the same WebView; true would
+        // require a working onCreateWindow which causes a crash if the parent
+        // WebView is reused as the popup host (pitfalls #12, #21).
+        s.setSupportMultipleWindows(false)
         s.javaScriptCanOpenWindowsAutomatically = true
         s.allowFileAccess = false
         s.allowContentAccess = false
@@ -303,9 +381,7 @@ class StageActivity : AppCompatActivity() {
         v.webViewClient = shellClient
         v.webChromeClient = shellChrome
         v.setDownloadListener { url, _, _, _, _ ->
-            runCatching {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            }
+            openExternally(url)
         }
         return v
     }
@@ -328,10 +404,6 @@ class StageActivity : AppCompatActivity() {
             val now = System.currentTimeMillis()
             redirectsIn = if (now - lastNav < REDIRECT_WINDOW_MS) redirectsIn + 1 else 0
             lastNav = now
-            // No mid-chain intervention here. Chromium's own 20-redirect
-            // ceiling terminates the chain via onReceivedError, which is
-            // where we handle recovery. Intervening in onPageStarted based
-            // on a per-install budget was the source of the black flash.
         }
 
         override fun onPageFinished(view: WebView, url: String) {
@@ -348,8 +420,20 @@ class StageActivity : AppCompatActivity() {
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
-            val url = req.url ?: return false
-            return route(url)
+            val uri = req.url ?: return false
+            val scheme = uri.scheme?.lowercase() ?: return false
+            return when {
+                scheme == "http" || scheme == "https" -> false
+                scheme == "intent" -> { openIntentUri(uri.toString()); true }
+                else -> {
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)); true }
+                        .getOrElse { e ->
+                            if (e is ActivityNotFoundException)
+                                Tracer.w(TAG, "no handler for scheme=$scheme")
+                            true
+                        }
+                }
+            }
         }
 
         override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) {
@@ -358,24 +442,36 @@ class StageActivity : AppCompatActivity() {
             Tracer.w(TAG, "main frame error $code: ${e.description}")
             errorInLoad = true
 
-            // ERROR_REDIRECT_LOOP (Chromium -9, ERR_TOO_MANY_REDIRECTS) is
-            // the expected outcome for partner chains longer than 20 hops.
-            // Some devices also surface -12 (ERROR_BAD_URL) or a bare -9 on
-            // certain WebView versions. Recover from any main-frame failure
-            // by resuming from the deepest hop we managed to reach.
+            // A custom scheme already dispatched to the system — the page behind
+            // it is fine; just ensure the cover is not blocking anything.
+            if (code == WebViewClient.ERROR_UNSUPPORTED_SCHEME) {
+                retryPending = false
+                dropCover()
+                return
+            }
+
+            // Network connectivity errors: go straight to the offline screen.
+            // Using the connectivity-loss codes (-2 HOST_LOOKUP, -6 CONNECT,
+            // -7 IO, -8 TIMEOUT as connectivity issue, -11 FILE_NOT_FOUND).
+            if (code in NET_ERROR_CODES || !link.isConnected()) {
+                goOffline("network error $code in WebView")
+                return
+            }
+
+            // ERR_TOO_MANY_REDIRECTS (-9) and related codes: resume the chain
+            // from the deepest hop reached so far (pitfalls #24, #30).
             if (code == WebViewClient.ERROR_REDIRECT_LOOP ||
-                code == WebViewClient.ERROR_TIMEOUT ||
                 code == WebViewClient.ERROR_BAD_URL ||
                 code == WebViewClient.ERROR_UNKNOWN
             ) {
                 scheduleRetry(v)
-            } else {
-                // Non-recoverable error (bad host, TLS failure, etc.). Drop
-                // the cover so the user sees whatever Chromium put up rather
-                // than an eternal spinner.
-                retryPending = false
-                dropCover()
+                return
             }
+
+            // Anything else: the page is what it is. Never leave the user
+            // under a cover waiting on a load that already failed.
+            retryPending = false
+            dropCover()
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail?): Boolean {
@@ -406,19 +502,6 @@ class StageActivity : AppCompatActivity() {
             restarting = false
             return true
         }
-
-        private fun route(uri: Uri): Boolean {
-            val scheme = uri.scheme?.lowercase() ?: return false
-            if (scheme == "http" || scheme == "https") return false
-            return runCatching {
-                startActivity(Intent(Intent.ACTION_VIEW, uri))
-                true
-            }.getOrElse { e ->
-                if (e is ActivityNotFoundException)
-                    Tracer.w(TAG, "no handler for scheme=$scheme")
-                true
-            }
-        }
     }
 
     // ── Retry & loading cover ──────────────────────────────────────────────
@@ -446,8 +529,8 @@ class StageActivity : AppCompatActivity() {
     private fun buildCover(): FrameLayout {
         val f = FrameLayout(this).apply {
             setBackgroundColor(COVER_BG)
-            isClickable = true       // swallow taps so the user cannot pat
-            isFocusable = true       // the error page beneath the cover
+            isClickable = true
+            isFocusable = true
             visibility = View.VISIBLE
         }
         val spinner = ProgressBar(this).apply {
@@ -455,11 +538,21 @@ class StageActivity : AppCompatActivity() {
             indeterminateTintList = ColorStateList.valueOf(COVER_ACCENT)
         }
         val size = (56 * resources.displayMetrics.density + 0.5f).toInt()
-        f.addView(
-            spinner,
-            FrameLayout.LayoutParams(size, size, Gravity.CENTER)
-        )
+        f.addView(spinner, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
         return f
+    }
+
+    /** Safety net: if a page hangs and never delivers onPageFinished or
+     *  onProgressChanged(100), the cover would stay forever. Drop it
+     *  after COVER_MAX_MS (pitfalls #14). */
+    private fun scheduleCoverTimeout() {
+        cover.postDelayed({
+            if (cover.visibility == View.VISIBLE && !retryPending) {
+                Tracer.w(TAG, "cover timed out — dropping")
+                retryPending = false
+                dropCover()
+            }
+        }, COVER_MAX_MS)
     }
 
     private fun raiseCover() {
@@ -492,6 +585,11 @@ class StageActivity : AppCompatActivity() {
     private val shellChrome = object : WebChromeClient() {
         override fun onPermissionRequest(request: PermissionRequest) { request.deny() }
 
+        /** Backstop for pages that report progress but never fire onPageFinished. */
+        override fun onProgressChanged(view: WebView, newProgress: Int) {
+            if (newProgress == 100 && !retryPending && !errorInLoad) dropCover()
+        }
+
         override fun onShowFileChooser(
             web: WebView,
             filePathCallback: ValueCallback<Array<Uri>>,
@@ -512,18 +610,48 @@ class StageActivity : AppCompatActivity() {
         pickUpload = null
     }
 
+    // ── External URL routing ───────────────────────────────────────────────
+
+    /** Opens any URL outside the WebView (payment apps, market, etc.). */
+    private fun openExternally(url: String) {
+        runCatching {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
+
+    /**
+     * intent:// URIs name a target app and carry a browser_fallback_url. Try
+     * the named app → generic intent → fallback URL before giving up
+     * (pitfalls #22).
+     */
+    private fun openIntentUri(url: String) {
+        val parsed = runCatching {
+            Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+        }.getOrNull() ?: return
+        val fallback = parsed.getStringExtra("browser_fallback_url")
+        parsed.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        parsed.addCategory(Intent.CATEGORY_BROWSABLE)
+        parsed.component = null
+        parsed.selector = null
+
+        if (runCatching { startActivity(parsed) }.isSuccess) return
+        parsed.`package` = null
+        if (runCatching { startActivity(parsed) }.isSuccess) return
+        if (!fallback.isNullOrBlank()) web.loadUrl(fallback)
+    }
+
     // ── Lifecycle bookkeeping ──────────────────────────────────────────────
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // A hardware back before the shell has produced its first frame is
-        // typically a user impatiently escaping the launch — take them out
-        // of the app instead of leaving them on a black WebView.
+        // Swallow BACK while the first page has not committed yet — we
+        // must never close the shell before it manages to draw anything.
+        // OnBackPressedCallback takes over once [wentLive] flips true.
         if (event.action == KeyEvent.ACTION_DOWN &&
             event.keyCode == KeyEvent.KEYCODE_BACK && !wentLive
-        ) {
-            moveTaskToBack(true)
-            return true
-        }
+        ) return true
         return super.dispatchKeyEvent(event)
     }
 
@@ -548,7 +676,10 @@ class StageActivity : AppCompatActivity() {
         private const val REDIRECT_WINDOW_MS = 1_500L
         private const val MAX_RETRIES = 6
         private const val RETRY_DELAY_MS = 60L
+        private const val COVER_MAX_MS = 20_000L
         private const val COVER_BG = 0xFF0B0B0F.toInt()
         private const val COVER_ACCENT = 0xFFF2C464.toInt()
+        // Network error codes that warrant an offline screen transition.
+        private val NET_ERROR_CODES = setOf(-2, -6, -7, -11)
     }
 }
