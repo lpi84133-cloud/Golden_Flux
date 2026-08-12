@@ -145,33 +145,26 @@ class FluxStore(private val ctx: Context) {
         set(v) { plain.edit().putBoolean(BuildConfig.K_PROMO_OS_BLOCK, v).apply() }
 
     fun shouldOfferPromo(): Boolean {
-        // On API 33+ synchronise our flags with the real OS permission state.
-        // Covers two edge cases:
-        //  1. promoGranted=true but OS later revoked the permission (user went
-        //     to Settings → Apps → Notifications and turned it off). We must
-        //     reset the flag so the promo reappears.
-        //  2. promoOsBlocked=true but user went to Settings and re-enabled
-        //     notifications manually. Clear the block so Accept can work again.
-        // On API < 33 notifications are granted automatically; promoGranted is
-        // set on Accept and the screen should not reappear — no change needed.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // Flutter parity (vault.dart § shouldOfferPushInvite):
+        //   if (isPushAllowed())     return false
+        //   if (isPushBlockedByOs()) return false
+        //   final until = readInviteCooldown()
+        //   if (until == null) return true
+        //   return now >= until
+        //
+        // Only side check: if we previously marked the user as granted but
+        // the OS no longer has POST_NOTIFICATIONS (user revoked in Settings),
+        // reset the stale flag so the promo can come back. Never short-circuit
+        // to `false` just because the OS state looks permissive — the promo is
+        // an install-time contract and must fire at least once even on API
+        // levels below 13 (Accept there just no-ops and marks promoGranted).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && promoGranted) {
             val osGranted = ctx.checkSelfPermission(
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-            if (osGranted) {
-                // OS has permission — make sure our flag matches and bail.
-                if (!promoGranted) promoGranted = true
-                return false
-            } else {
-                // OS does NOT have permission.
-                if (promoGranted) promoGranted = false   // was revoked externally
-                if (promoOsBlocked) promoOsBlocked = false // unblocked in Settings
-            }
-        } else {
-            // Pre-13: permission is always considered granted.
-            if (!promoGranted) promoGranted = true
-            return false
+            if (!osGranted) promoGranted = false
         }
+        if (promoGranted || promoOsBlocked) return false
         val now = System.currentTimeMillis() / 1000
         return now >= promoDeferUntil
     }

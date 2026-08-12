@@ -29,16 +29,17 @@ import java.util.concurrent.atomic.AtomicInteger
  * Firebase Cloud Messaging service. Everything about the push contract lives
  * here (kotlin_webview.mdc §"Push URL", pitfalls #32):
  *
- *  - a URL that fails [HostGate] is dropped and only the text notification is
- *    shown (a push tap must never open a page the app cannot recognise);
+ *  - every URL from FCM is trusted (only holders of our FCM server key can
+ *    address this app). Its host is promoted into [HostGate] and persisted
+ *    to [FluxStore.trustedHosts] on delivery — matches the Flutter
+ *    template's `push_hub.dart`, which stashes cold-tap links with no gate;
  *  - a warm URL (shell alive) goes straight to [WarmSignal] and is never
  *    persisted; the notification is suppressed so no tray badge stays after
  *    delivery;
- *  - a cold URL is stored and consumed exactly once by [MainActivity];
- *  - a NATIVE user keeps their game — a URL becomes a harmless notification
- *    and the tap opens the launcher instead of the WebView. Turning a NATIVE
- *    user into a WebView after the fact is a store-review problem, not a
- *    feature (kotlin_launch_flow.mdc §"Once native, stay native").
+ *  - a cold URL is stored in [FluxStore.pendingColdPush] and consumed
+ *    exactly once by [MainActivity];
+ *  - a NATIVE user's cold-tap flips the stage back to UNKNOWN so the shell
+ *    can honour the targeted URL (MainActivity guards the transition).
  */
 class FluxPushService : FirebaseMessagingService() {
 
@@ -63,18 +64,28 @@ class FluxPushService : FirebaseMessagingService() {
         val rawUrl = (data["url"] ?: data["link"] ?: "").trim()
         val imageUrl = data["image"] ?: notif?.imageUrl?.toString() ?: ""
 
-        val urlAllowed = rawUrl.isNotEmpty() && HostGate.admits(rawUrl)
-        if (rawUrl.isNotEmpty() && !urlAllowed) {
-            Tracer.w(TAG, "push URL rejected by allowlist — showing text-only notification")
-        }
-
         val store = FluxStore(applicationContext)
         val stage = store.stage
+
+        // FCM messages come from OUR authenticated backend (only holders of
+        // our FCM server key can address this app). Every URL in a payload
+        // is therefore trusted by definition — mirroring the Flutter
+        // template's `push_hub.dart`, which just calls
+        // `_vault.stashPendingLink(link)` on cold tap with no HostGate check.
+        //
+        // We *also* promote the URL's host into HostGate here so that any
+        // future check (MainActivity.extractPushUrl, in-WebView navigation)
+        // passes without re-running the FCM-trust argument. The host is
+        // persisted to FluxStore so it survives process death.
+        if (rawUrl.isNotEmpty()) {
+            val host = HostGate.remember(rawUrl)
+            if (host != null) store.addTrustedHost(host)
+        }
 
         // Warm hand-off works only for STREAM installs. NATIVE stays native
         // while foregrounded — a targeted URL only overrides on an explicit
         // notification tap (handled by MainActivity's cold-push branch).
-        if (urlAllowed && stage == FluxStore.Stage.STREAM && WarmSignal.onLive != null) {
+        if (rawUrl.isNotEmpty() && stage == FluxStore.Stage.STREAM && WarmSignal.onLive != null) {
             val delivered = runCatching { WarmSignal.offer(rawUrl) }.getOrDefault(false)
             if (delivered) return
         }
@@ -82,30 +93,21 @@ class FluxPushService : FirebaseMessagingService() {
         // Cold-push stash: keep the URL for EVERY stage (including NATIVE),
         // so the tap-intent can flip a stale NATIVE lock and route to the
         // shell. MainActivity guards the actual navigation.
-        val stashUrl = if (urlAllowed) rawUrl else ""
-        if (stashUrl.isNotEmpty()) store.pendingColdPush = stashUrl
+        if (rawUrl.isNotEmpty()) store.pendingColdPush = rawUrl
 
-        io.launch { emitNotification(title, body, stashUrl, rawUrl, imageUrl) }
+        io.launch { emitNotification(title, body, rawUrl, imageUrl) }
     }
 
     private suspend fun emitNotification(
-        title: String, body: String, url: String, rawUrl: String, imageUrl: String
+        title: String, body: String, rawUrl: String, imageUrl: String
     ) {
         val ctx = applicationContext
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(nm)
 
-        // Always carry the raw URL (even if HostGate rejected it during
-        // onMessageReceived). On a cold tap the app process starts fresh,
-        // GoldenFluxApp.onCreate seeds HostGate from persistence, and
-        // MainActivity re-evaluates the URL with that up-to-date gate.
-        // Without this, a URL that HostGate didn't admit at delivery time
-        // (e.g. because the process had just restarted and dynamic hosts
-        // weren't yet in memory) would be lost forever.
-        val tapUrl = url.ifBlank { rawUrl }
         val tap = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (tapUrl.isNotBlank()) putExtra(MainActivity.EXTRA_PUSH_URL, tapUrl)
+            if (rawUrl.isNotBlank()) putExtra(MainActivity.EXTRA_PUSH_URL, rawUrl)
             putExtra(MainActivity.EXTRA_FROM_PUSH, true)
         }
         val pi = PendingIntent.getActivity(

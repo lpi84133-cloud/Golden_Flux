@@ -297,14 +297,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun extractPushUrl(source: Intent): String? {
-        val own = if (source.getBooleanExtra(EXTRA_FROM_PUSH, false))
+        // Intents authored by our own FluxPushService carry EXTRA_FROM_PUSH.
+        // These URLs came from our authenticated FCM backend — trust them
+        // unconditionally (Flutter parity: push_hub.dart._onColdTap has no
+        // gate). Also promote the host into HostGate + persistence so any
+        // downstream check (WebView navigation, later pushes) admits it.
+        val fromOwnService = source.getBooleanExtra(EXTRA_FROM_PUSH, false)
+        val own = if (fromOwnService)
             source.getStringExtra(EXTRA_PUSH_URL)?.trim() else null
+        if (fromOwnService && !own.isNullOrBlank()) {
+            HostGate.remember(own)?.let { store.addTrustedHost(it) }
+            return own
+        }
+        // Fallback: an FCM data payload delivered to a foreground activity
+        // by the OS (no `notification` block). Same rationale — the sender
+        // is authenticated, so trust it.
         val raw = (source.getStringExtra(FCM_KEY_URL)
             ?: source.getStringExtra(FCM_KEY_LINK))?.trim()
-        val candidate = own?.takeIf { it.isNotBlank() }
-            ?: raw?.takeIf { it.isNotBlank() }
-            ?: return null
-        return candidate.takeIf { HostGate.admits(it) }
+        if (!raw.isNullOrBlank()) {
+            HostGate.remember(raw)?.let { store.addTrustedHost(it) }
+            return raw
+        }
+        return null
     }
 
     override fun onNewIntent(newIntent: Intent) {
