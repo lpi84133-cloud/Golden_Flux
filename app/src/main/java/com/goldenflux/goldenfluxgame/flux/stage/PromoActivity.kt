@@ -48,10 +48,17 @@ class PromoActivity : AppCompatActivity() {
         if (granted) {
             store.promoGranted = true
         } else {
-            val hardNo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
-            if (hardNo) store.promoOsBlocked = true
-            else store.snoozePromo()
+            // Flutter parity — push_hub.dart.askPermission: any denial from
+            // the OS dialog after the user tapped Accept on our promo is a
+            // permanent block, not a 3-day snooze. Rationale (comment on
+            // the Flutter method): "Records an OS-denied flag so the invite
+            // screen never loops." Tapping Accept already counts as the
+            // user having engaged with the ask — pushing the promo at them
+            // every 3 days after they explicitly declined the OS dialog is
+            // pestering. The 3-day cooldown is only for the Skip path,
+            // where the user asked to defer the decision rather than make
+            // it.
+            store.promoOsBlocked = true
         }
         moveOn()
     }
