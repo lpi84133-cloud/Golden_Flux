@@ -46,13 +46,21 @@ internal object HostGate {
 
     /**
      * Records the host of a config-endpoint URL as trusted and returns it.
-     * Call this the moment the endpoint hands back a `Stream` URL — the
-     * endpoint is the authority on where the user goes, so its host is
-     * trusted for any subsequent gating (e.g. warm/cold push to the campaign).
+     * Also adds the parent domain (one label up) so sibling subdomains of the
+     * same campaign host are admitted by push payloads — e.g. if config
+     * returns `casino.partner.com`, a push from `bonuses.partner.com` will
+     * still be admitted because `partner.com` is now trusted and
+     * `bonuses.partner.com` ends with `.partner.com`.
+     * The parent is only added when it contains at least one dot itself,
+     * preventing over-broad entries like `com` or `net`.
      */
     fun remember(url: String?): String? {
         val host = hostOf(url) ?: return null
-        synchronized(trusted) { trusted.add(host) }
+        synchronized(trusted) {
+            trusted.add(host)
+            val parent = host.substringAfter('.', "")
+            if (parent.contains('.')) trusted.add(parent)
+        }
         return host
     }
 

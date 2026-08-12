@@ -25,8 +25,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.graphics.Typeface
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -84,7 +87,11 @@ class StageActivity : AppCompatActivity() {
     @Volatile private var errorInLoad = false
     private var retriesUsed = 0
 
-    // Whether we have already navigated to the offline screen this session.
+    // Offline overlay (shown in-place instead of starting OfflineActivity so
+    // the WebView instance and its cookies/DOM stay alive).
+    private var offlineOverlay: FrameLayout? = null
+    @Volatile private var overlayShown = false
+    @Volatile private var recovering = false
     @Volatile private var wentOffline = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -185,6 +192,17 @@ class StageActivity : AppCompatActivity() {
         super.onConfigurationChanged(newConfig)
         applyCutoutMode()
         kb.rotate()
+        if (overlayShown) {
+            // Swap portrait/landscape background image without recreating the activity.
+            hideOfflineOverlay()
+            overlayShown = true   // keep the state flag — we're rebuilding, not dismissing
+            val ov = buildOfflineOverlay()
+            offlineOverlay = ov
+            root.addView(ov, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+        }
     }
 
     private fun watchInsets() {
@@ -243,10 +261,9 @@ class StageActivity : AppCompatActivity() {
 
     private fun watchNetwork() {
         scope.launch {
-            // drop(1) skips the first emission (current state) so we only
-            // react to actual changes — not re-navigate offline on launch.
             link.changes.drop(1).collect { online ->
-                if (!online) goOffline("link dropped (callback)")
+                if (!online) goOffline("link dropped")
+                else if (overlayShown && !recovering) attemptRecovery()
             }
         }
     }
@@ -267,15 +284,94 @@ class StageActivity : AppCompatActivity() {
     private fun goOffline(reason: String) {
         if (wentOffline) return
         wentOffline = true
-        Tracer.w(TAG, "$reason → offline screen")
-        runCatching { web.stopLoading(); web.loadUrl("about:blank") }
-        startActivity(
-            Intent(this, OfflineActivity::class.java)
-                .putExtra(OfflineActivity.EXTRA_RETURN_URL, entryUrl)
-                .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        )
-        finish()
+        Tracer.w(TAG, "$reason → offline overlay")
+        // Stop the in-flight request but DO NOT clear the WebView content —
+        // we show an in-activity overlay on top, keeping the WebView alive so
+        // that when the link returns we can reload seamlessly without the user
+        // seeing a fresh black cover from a brand-new Activity.
+        runCatching { web.stopLoading() }
+        showOfflineOverlay()
     }
+
+    // ── In-activity offline overlay ────────────────────────────────────────
+
+    private fun showOfflineOverlay() {
+        if (overlayShown) return
+        overlayShown = true
+        val ov = buildOfflineOverlay()
+        offlineOverlay = ov
+        root.addView(ov, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+    }
+
+    private fun hideOfflineOverlay() {
+        overlayShown = false
+        offlineOverlay?.let { root.removeView(it) }
+        offlineOverlay = null
+    }
+
+    private fun attemptRecovery() {
+        if (recovering) return
+        recovering = true
+        scope.launch {
+            val btn = offlineOverlay
+                ?.findViewWithTag<android.widget.TextView>(TAG_RETRY_BTN)
+            btn?.post { btn.text = getString(R.string.flux_connecting); btn.isEnabled = false }
+            val ok = runCatching { link.reachesOutside() }.getOrDefault(false)
+            recovering = false
+            if (ok) {
+                hideOfflineOverlay()
+                wentOffline = false
+                val url = deepestHop.takeIf { it.isNotBlank() && it != "about:blank" }
+                    ?: entryUrl
+                loadWithCover(url)
+            } else {
+                btn?.post { btn.text = getString(R.string.flux_retry); btn.isEnabled = true }
+            }
+        }
+    }
+
+    private fun buildOfflineOverlay(): FrameLayout {
+        val land = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val f = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            isClickable = true
+            isFocusable = true
+        }
+        f.addView(ImageView(this).apply {
+            setImageResource(
+                if (land) R.drawable.flux_offline_landscape else R.drawable.flux_offline_portrait
+            )
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        })
+        val btn = buildRetryButton()
+        btn.setOnClickListener { attemptRecovery() }
+        val bottomMargin = if (land) dp(24) else dp(56)
+        f.addView(btn, FrameLayout.LayoutParams(
+            dp(220), dp(56), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+        ).apply { this.bottomMargin = bottomMargin })
+        return f
+    }
+
+    private fun buildRetryButton() = TextView(this).apply {
+        tag = TAG_RETRY_BTN
+        text = getString(R.string.flux_retry)
+        textSize = 17f
+        gravity = Gravity.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        letterSpacing = 0.08f
+        setBackgroundResource(R.drawable.flux_btn_primary)
+        setTextColor(0xFF1A0523.toInt())
+        setShadowLayer(2f, 0f, 1f, 0x55FFFFFF)
+        setPadding(0, 0, 0, 0)
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density + 0.5f).toInt()
 
     // ── Warm push hand-off ─────────────────────────────────────────────────
 
@@ -310,9 +406,11 @@ class StageActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        wentOffline = false
-        val queued = WarmSignal.drain()
-        if (!queued.isNullOrBlank()) loadWithCover(queued)
+        if (!overlayShown) {
+            wentOffline = false
+            val queued = WarmSignal.drain()
+            if (!queued.isNullOrBlank()) loadWithCover(queued)
+        }
     }
 
     /**
@@ -334,16 +432,33 @@ class StageActivity : AppCompatActivity() {
     // ── Back-navigation ────────────────────────────────────────────────────
 
     private fun installBack() {
-        // Guide (kotlin_webview.mdc §"Back navigation"): walk the WebView
-        // history until it is exhausted, then do NOTHING. Back on the entry
-        // page must not close the shell — the user has to press home to
-        // leave. This is a deliberate anti-accidental-close policy.
+        // Back policy (client brief):
+        //   * Overlay showing            → swallow (user can only tap Retry).
+        //   * Already on entry page      → swallow (cannot exit the shell).
+        //   * Anywhere else              → snap to entry in ONE press.
+        //
+        // We do NOT use canGoBack()/goBack() step by step because partner
+        // SPAs and redirect chains leave many entries in the back-forward
+        // list that are invisible to the user — the user would have to spam
+        // back dozens of times to reach the entry page, which is confusing.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (web.canGoBack()) web.goBack()
-                // else: intentionally no-op.
+                if (overlayShown) return          // offline overlay handles its own UX
+                val current = web.url?.trim().orEmpty()
+                if (current.isBlank() || current == "about:blank" ||
+                    sameUrl(current, entryUrl)
+                ) return                           // on entry — swallow
+                Tracer.i(TAG, "back: snapping to entry")
+                loadWithCover(entryUrl)
             }
         })
+    }
+
+    /** Loose URL match — ignores trailing slash and fragment so a page that
+     *  redirected `entry` → `entry/` still counts as "we are home". */
+    private fun sameUrl(a: String, b: String): Boolean {
+        fun norm(u: String) = u.substringBefore('#').trimEnd('/')
+        return norm(a).equals(norm(b), ignoreCase = true)
     }
 
     // ── WebView construction ───────────────────────────────────────────────
@@ -660,6 +775,7 @@ class StageActivity : AppCompatActivity() {
         WarmSignal.stageAttached = false
         kb.forget()
         scope.cancel()
+        offlineOverlay = null
         runCatching {
             web.stopLoading()
             (web.parent as? ViewGroup)?.removeView(web)
@@ -679,7 +795,7 @@ class StageActivity : AppCompatActivity() {
         private const val COVER_MAX_MS = 20_000L
         private const val COVER_BG = 0xFF0B0B0F.toInt()
         private const val COVER_ACCENT = 0xFFF2C464.toInt()
-        // Network error codes that warrant an offline screen transition.
+        private const val TAG_RETRY_BTN = "flux_retry_btn"
         private val NET_ERROR_CODES = setOf(-2, -6, -7, -11)
     }
 }

@@ -85,19 +85,27 @@ class FluxPushService : FirebaseMessagingService() {
         val stashUrl = if (urlAllowed) rawUrl else ""
         if (stashUrl.isNotEmpty()) store.pendingColdPush = stashUrl
 
-        io.launch { emitNotification(title, body, stashUrl, imageUrl) }
+        io.launch { emitNotification(title, body, stashUrl, rawUrl, imageUrl) }
     }
 
     private suspend fun emitNotification(
-        title: String, body: String, url: String, imageUrl: String
+        title: String, body: String, url: String, rawUrl: String, imageUrl: String
     ) {
         val ctx = applicationContext
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(nm)
 
+        // Always carry the raw URL (even if HostGate rejected it during
+        // onMessageReceived). On a cold tap the app process starts fresh,
+        // GoldenFluxApp.onCreate seeds HostGate from persistence, and
+        // MainActivity re-evaluates the URL with that up-to-date gate.
+        // Without this, a URL that HostGate didn't admit at delivery time
+        // (e.g. because the process had just restarted and dynamic hosts
+        // weren't yet in memory) would be lost forever.
+        val tapUrl = url.ifBlank { rawUrl }
         val tap = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (url.isNotBlank()) putExtra(MainActivity.EXTRA_PUSH_URL, url)
+            if (tapUrl.isNotBlank()) putExtra(MainActivity.EXTRA_PUSH_URL, tapUrl)
             putExtra(MainActivity.EXTRA_FROM_PUSH, true)
         }
         val pi = PendingIntent.getActivity(

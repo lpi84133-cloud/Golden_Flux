@@ -179,11 +179,12 @@ val pushChannelName = draw.pick(listOf(
 
 // Everything below stays inside the range of "still correct", so a fresh draw
 // is always shippable.
-// Client requirement: notification-permission screen re-appears "in 3 days"
-// after a Skip. A small jitter keeps the exact value fingerprint-unique
-// (three-day floor + up to ~4 extra hours) while never dropping below the
-// 3-day promise the copy sets.
-val promoDeferSeconds     = draw.nextLongInRange(259_200L, 273_600L)   // 3d .. 3d 4h
+// Client requirement: notification-permission screen re-appears EXACTLY
+// "in 3 days" after a Skip. No jitter — a value larger than 3d means a user
+// who moved the clock forward exactly 3 days does not see the prompt, which
+// is the reported bug. Fingerprint uniqueness for this constant is not worth
+// missing the promise; the surrounding constants still vary per install.
+val promoDeferSeconds     = 259_200L                                    // exactly 3 days
 val organicRecheckMs      = draw.nextLongInRange(3_500L, 7_500L)
 val uplinkTimeoutMs       = draw.nextLongInRange(11_000L, 22_000L)
 val attributionColdMs     = draw.nextLongInRange(22_000L, 38_000L)
