@@ -36,6 +36,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.goldenflux.goldenfluxgame.BuildConfig
+import com.goldenflux.goldenfluxgame.R
 import com.goldenflux.goldenfluxgame.flux.env.Env
 import com.goldenflux.goldenfluxgame.flux.link.LinkMonitor
 import com.goldenflux.goldenfluxgame.flux.signal.WarmSignal
