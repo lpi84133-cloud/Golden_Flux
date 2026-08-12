@@ -105,8 +105,18 @@ class FluxPushService : FirebaseMessagingService() {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(nm)
 
+        // CLEAR_TASK, not SINGLE_TOP: the tap must always land on a clean
+        // MainActivity, even if something else (e.g. OfflineActivity) is
+        // currently on top of the task. Without this, a push tapped while
+        // the app is backgrounded on the No-Wi-Fi screen races with that
+        // screen's auto-retry: whichever launches MainActivity first wins,
+        // and the auto-retry variant carries no push info, so the router
+        // starts a fresh firstLaunch() and — if the moment-of-tap link
+        // check flaps — sends the user right back to the No-Wi-Fi screen.
+        // Warm push (shell alive) never reaches this path; WarmSignal
+        // intercepts the URL before a notification is even shown.
         val tap = Intent(ctx, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             if (rawUrl.isNotBlank()) putExtra(MainActivity.EXTRA_PUSH_URL, rawUrl)
             putExtra(MainActivity.EXTRA_FROM_PUSH, true)
         }

@@ -106,7 +106,16 @@ class MainActivity : AppCompatActivity() {
             store.stage = FluxStore.Stage.UNKNOWN
         }
 
-        if (pushed == null &&
+        // The offline first-frame branch must yield to any pending push. Two
+        // channels can carry it: the current tap intent (already reflected in
+        // `pushed`) OR a URL that FCM stashed while we were offline. Ignoring
+        // the latter reproduces the "tap notification from the No-WiFi screen
+        // → land back on No-WiFi" glitch: `link.isConnected()` briefly reads
+        // false while Android is validating the just-connected Wi-Fi, so
+        // without this guard MainActivity re-enters OfflineActivity in a loop
+        // even though a targeted URL is waiting to be honoured.
+        val hasPendingCold = !store.pendingColdPush.isNullOrBlank()
+        if (pushed == null && !hasPendingCold &&
             store.stage == FluxStore.Stage.UNKNOWN &&
             !link.isConnected()
         ) {

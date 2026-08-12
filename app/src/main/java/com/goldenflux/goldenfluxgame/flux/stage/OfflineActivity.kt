@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.goldenflux.goldenfluxgame.R
 import com.goldenflux.goldenfluxgame.MainActivity
 import com.goldenflux.goldenfluxgame.flux.link.LinkMonitor
+import com.goldenflux.goldenfluxgame.flux.store.FluxStore
 import com.goldenflux.goldenfluxgame.flux.util.Immersive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +108,25 @@ class OfflineActivity : AppCompatActivity() {
         scope.launch {
             val ok = link.reachesOutside()
             if (ok) {
-                val next = if (!returnUrl.isNullOrBlank()) {
+                // Priority order (Flutter parity — flow_router.dart._resumeWeb):
+                //   1. pendingColdPush from FCM (a push tap that landed while
+                //      we were offline). This wins over EVERYTHING else per
+                //      android_gray_guide.md §"AppMode.online" state machine.
+                //   2. explicit returnUrl (we were interrupted on a specific
+                //      page during the shell's own offline overlay flow).
+                //   3. router restart from scratch.
+                val store = FluxStore(applicationContext)
+                val cold  = store.pendingColdPush?.takeIf { it.isNotBlank() }
+                val next = if (!cold.isNullOrBlank()) {
+                    // Route MainActivity so promo/state machine still runs
+                    // on the cold-push URL exactly the same way as a direct
+                    // notification tap does. CLEAR_TASK wipes this offline
+                    // screen so it cannot re-race the launch.
+                    Intent(this@OfflineActivity, MainActivity::class.java)
+                        .putExtra(MainActivity.EXTRA_PUSH_URL, cold)
+                        .putExtra(MainActivity.EXTRA_FROM_PUSH, true)
+                        .setFlags(FLAG_ACTIVITY_CLEAR_TASK or FLAG_ACTIVITY_NEW_TASK)
+                } else if (!returnUrl.isNullOrBlank()) {
                     Intent(this@OfflineActivity, StageActivity::class.java)
                         .putExtra(StageActivity.EXTRA_TARGET_URL, returnUrl)
                         .setFlags(FLAG_ACTIVITY_CLEAR_TOP)
