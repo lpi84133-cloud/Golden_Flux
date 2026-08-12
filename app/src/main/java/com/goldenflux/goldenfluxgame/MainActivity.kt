@@ -190,7 +190,18 @@ class MainActivity : AppCompatActivity() {
             openStage(cold); return
         }
 
-        val savedUrl = if (store.targetIsUsable()) store.target else null
+        // Always keep the stored URL as a fallback even if TTL has expired.
+        // TTL means "prefer a fresh answer from the gate", not "refuse the
+        // cached URL as a last resort". Flutter template: readCachedLink()
+        // has no TTL guard — it falls through to _toWeb(cached) on any
+        // non-Stream reply, which is the only path that checks
+        // shouldOfferPushInvite(). Guarding savedUrl by targetIsUsable()
+        // was silently breaking the 3-day promo re-show: if the user moved
+        // the clock forward (or the TTL genuinely expired) AND the gate
+        // returned non-Stream, savedUrl became null → OfflineActivity was
+        // launched instead of openStage(), so shouldOfferPromo() was never
+        // evaluated and the promo screen was skipped entirely.
+        val savedUrl = store.target
 
         val pilot = (application as GoldenFluxApp).attribution
         pilot.ignite(this)
