@@ -61,7 +61,6 @@ class SaveRepository(private val context: Context) {
         })
         put("profile", JSONObject().apply {
             put("name", s.profile.name)
-            put("avatarPath", s.profile.avatarPath ?: JSONObject.NULL)
         })
         put("stats", JSONObject().apply {
             put("totalEnergyProduced", s.stats.totalEnergyProduced)
@@ -147,7 +146,6 @@ class SaveRepository(private val context: Context) {
             ),
             profile = Profile(
                 name = pr.optString("name", "Keeper"),
-                avatarPath = if (pr.isNull("avatarPath")) null else pr.optString("avatarPath", null),
             ),
             stats = Stats(
                 totalEnergyProduced = stat.optDouble("totalEnergyProduced", 0.0),

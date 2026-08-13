@@ -90,7 +90,6 @@ data class Settings(
 
 data class Profile(
     val name: String = "Keeper",
-    val avatarPath: String? = null,
 )
 
 data class Stats(

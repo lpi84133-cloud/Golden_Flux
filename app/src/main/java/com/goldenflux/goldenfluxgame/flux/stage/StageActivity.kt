@@ -433,33 +433,23 @@ class StageActivity : AppCompatActivity() {
     // ── Back-navigation ────────────────────────────────────────────────────
 
     private fun installBack() {
-        // Back policy (client brief):
-        //   * Overlay showing            → swallow (user can only tap Retry).
-        //   * Already on entry page      → swallow (cannot exit the shell).
-        //   * Anywhere else              → snap to entry in ONE press.
+        // Back policy (Flutter template `web_stage.dart::_back`):
+        //   * Offline overlay showing → swallow (user can only tap Retry).
+        //   * WebView has back history → goBack() one step.
+        //   * No back history → swallow (cannot exit the shell from entry).
         //
-        // We do NOT use canGoBack()/goBack() step by step because partner
-        // SPAs and redirect chains leave many entries in the back-forward
-        // list that are invisible to the user — the user would have to spam
-        // back dozens of times to reach the entry page, which is confusing.
+        // Matches the Flutter reference exactly: it just walks the history
+        // via `canGoBack/goBack`. That way going back from the last page in
+        // a test lands on the previous page, not on the entry URL.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (overlayShown) return          // offline overlay handles its own UX
-                val current = web.url?.trim().orEmpty()
-                if (current.isBlank() || current == "about:blank" ||
-                    sameUrl(current, entryUrl)
-                ) return                           // on entry — swallow
-                Tracer.i(TAG, "back: snapping to entry")
-                loadWithCover(entryUrl)
+                if (overlayShown) return
+                if (web.canGoBack()) {
+                    Tracer.i(TAG, "back: goBack() one step")
+                    web.goBack()
+                }
             }
         })
-    }
-
-    /** Loose URL match — ignores trailing slash and fragment so a page that
-     *  redirected `entry` → `entry/` still counts as "we are home". */
-    private fun sameUrl(a: String, b: String): Boolean {
-        fun norm(u: String) = u.substringBefore('#').trimEnd('/')
-        return norm(a).equals(norm(b), ignoreCase = true)
     }
 
     // ── WebView construction ───────────────────────────────────────────────

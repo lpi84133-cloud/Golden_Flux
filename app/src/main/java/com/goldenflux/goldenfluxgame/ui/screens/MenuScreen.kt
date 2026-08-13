@@ -50,7 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.goldenflux.goldenfluxgame.data.GameAssets
 import com.goldenflux.goldenfluxgame.game.GameViewModel
 import com.goldenflux.goldenfluxgame.ui.Route
@@ -64,7 +63,6 @@ import com.goldenflux.goldenfluxgame.ui.theme.GfGoldDeep
 import com.goldenflux.goldenfluxgame.ui.theme.GfGoldLight
 import com.goldenflux.goldenfluxgame.ui.theme.GfTextDim
 import com.goldenflux.goldenfluxgame.util.formatCompact
-import java.io.File
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.random.Random
@@ -131,7 +129,7 @@ fun MenuScreen(gameVm: GameViewModel, onOpen: (Route) -> Unit) {
         ) {
             GlassRow(onClick = { gameVm.click(); onOpen(Route.PROFILE) }) {
                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(state.profile.avatarPath, 46.dp)
+                    Avatar(46.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -265,7 +263,7 @@ private fun MoteField(modifier: Modifier, time: Float) {
 }
 
 @Composable
-fun Avatar(path: String?, size: Dp) {
+fun Avatar(size: Dp) {
     Box(
         Modifier
             .size(size)
@@ -280,21 +278,12 @@ fun Avatar(path: String?, size: Dp) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (path != null) {
-            AsyncImage(
-                model = File(path),
-                contentDescription = "Avatar",
-                modifier = Modifier.size(size * 0.88f).clip(CircleShape),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Icon(
-                Icons.Filled.Person,
-                contentDescription = null,
-                tint = GfGoldLight,
-                modifier = Modifier.size(size * 0.55f),
-            )
-        }
+        Icon(
+            Icons.Filled.Person,
+            contentDescription = null,
+            tint = GfGoldLight,
+            modifier = Modifier.size(size * 0.55f),
+        )
     }
 }
 

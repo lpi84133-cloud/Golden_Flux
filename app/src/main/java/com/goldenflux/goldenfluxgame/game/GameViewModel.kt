@@ -430,12 +430,6 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         persist()
     }
 
-    fun setAvatar(path: String) {
-        val s = _state.value
-        commit(s.copy(profile = s.profile.copy(avatarPath = path)))
-        persist()
-    }
-
     fun click() = sound.play(Sfx.CLICK)
 
     private fun emit(msg: String) { _events.tryEmit(GameEvent.Message(msg)) }
