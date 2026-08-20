@@ -170,19 +170,25 @@ class MainActivity : AppCompatActivity() {
                 openStage(outcome.url)
             }
             is StageDecision.Native -> {
+                // The routing decision is taken exactly once, on the very
+                // first launch: whatever branch we land in here — organic
+                // read, empty attribution or the endpoint failing to
+                // answer — the outcome for this install is the game, and
+                // it stays that way for every subsequent launch. Locking
+                // to NATIVE here is what lets the second launch open the
+                // game offline (no internet, no "No WiFi" screen).
                 val status = attribution["af_status"]?.toString().orEmpty()
                 val organic = status.equals("Organic", ignoreCase = true)
+                store.stage = FluxStore.Stage.NATIVE
                 when {
                     !outcome.answered ->
-                        Tracer.i(TAG, "endpoint unreachable → game, decision left open")
+                        Tracer.i(TAG, "endpoint unreachable → NATIVE locked")
                     attribution.isEmpty() ->
-                        Tracer.i(TAG, "no attribution behind the answer → game, decision open")
+                        Tracer.i(TAG, "no attribution behind the answer → NATIVE locked")
                     organic ->
-                        Tracer.i(TAG, "Organic first read → game, decision open (retry next launch)")
-                    else -> {
-                        store.stage = FluxStore.Stage.NATIVE
+                        Tracer.i(TAG, "Organic first read → NATIVE locked")
+                    else ->
                         Tracer.i(TAG, "backend → NATIVE (media_source=$status)")
-                    }
                 }
                 handOffToGame()
             }
