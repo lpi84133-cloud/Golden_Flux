@@ -11,21 +11,20 @@ import com.goldenflux.goldenfluxgame.flux.util.HostGate
 import com.goldenflux.goldenfluxgame.flux.util.Tracer
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.google.firebase.messaging.FirebaseMessaging
 
 /**
  * Responsibilities:
  *
  *  * Wire Firebase and App Check.
- *  * [AttributionPilot.wireUp] before any activity runs (pitfalls #19).
+ *  * [AttributionPilot.wireUp] before any activity runs, so the attribution
+ *    SDK has already been initialised the first time any activity asks for
+ *    a decision.
  *  * Prime FCM eagerly (channel + token). Lazy-initialising these inside
  *    [flux.signal.FluxPushService.onMessageReceived] means the very first
  *    push after a fresh install may arrive before we ever asked for a token,
  *    or before the channel exists on the device — the OS then silently drops
- *    the notification. Doing it here matches Flutter template's
- *    `PushHub.boot()` being called first in the router pipeline.
+ *    the notification. Doing it up front here removes both races.
  */
 class GoldenFluxApp : Application() {
 
@@ -37,11 +36,7 @@ class GoldenFluxApp : Application() {
 
         try {
             FirebaseApp.initializeApp(this)
-            val factory = if (BuildConfig.DEBUG)
-                DebugAppCheckProviderFactory.getInstance()
-            else
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(factory)
+            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(AppCheckHelper.factory())
         } catch (e: Exception) {
             Tracer.w(TAG, "Firebase not initialised — uplink will still try the POST", e)
         }

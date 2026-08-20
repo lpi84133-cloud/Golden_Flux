@@ -19,9 +19,9 @@ import com.goldenflux.goldenfluxgame.R
  *
  *  * indeterminate — the bar eases toward ~92% with a moving shimmer and
  *    never finishes on its own. The router runs it while it routes; on
- *    [complete] the bar runs out to 100% and hands over after a 420 ms hold
- *    (kotlin_gray_pitfalls.mdc #26). The user is never moved on by a bar
- *    stopped at 70% and never left staring at a full one either.
+ *    [complete] the bar runs out to 100% and hands over after a 420 ms hold.
+ *    The user is never moved on by a bar stopped at 70% and never left
+ *    staring at a full one either.
  *  * timed — the bar fills over [totalMs] then calls [onComplete]. Used by
  *    the notification-permission screen while the shell page is coming up
  *    behind it.
@@ -50,8 +50,8 @@ class LaunchSplash(
 
     private var shown = 0f
 
-    // Cached orientation-aware background bitmaps. Decoded once — decoding in
-    // onDraw stutters the bar (custom_screens.md §2).
+    // Cached orientation-aware background bitmaps. Decoded once — decoding
+    // inside onDraw stutters the progress bar on low-end devices.
     private var bgPortrait: Bitmap? = null
     private var bgLandscape: Bitmap? = null
 
@@ -82,15 +82,6 @@ class LaunchSplash(
         drawArtwork(canvas, w, h)
 
         val elapsed = SystemClock.uptimeMillis() - startedAt
-
-        // Caption dots — always animating.
-        val dots = ".".repeat(((elapsed / 400L) % 4L).toInt())
-        text.textSize = h * 0.028f
-        text.color = gold
-        text.setShadowLayer(h * 0.006f, 0f, h * 0.003f, Color.BLACK)
-        val caption = context.getString(R.string.flux_loading) + dots
-        canvas.drawText(caption, w / 2f, h * 0.885f, text)
-        text.clearShadowLayer()
 
         if (indeterminate) {
             val progress = if (closingAt != 0L) {
@@ -204,6 +195,14 @@ class LaunchSplash(
         paint.color = gold
         canvas.drawRoundRect(x0, y0, x0 + barW, y0 + barH, r, r, paint)
         paint.style = Paint.Style.FILL
+
+        // Percentage label centred above the bar.
+        val pct = "${(progress * 100 + 0.5f).toInt()}%"
+        text.textSize = barH * 1.25f
+        text.color = Color.WHITE
+        text.setShadowLayer(barH * 0.25f, 0f, barH * 0.12f, Color.BLACK)
+        canvas.drawText(pct, w / 2f, y0 - barH * 0.45f, text)
+        text.clearShadowLayer()
     }
 
     private companion object {
