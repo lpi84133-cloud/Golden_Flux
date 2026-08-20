@@ -31,20 +31,18 @@ import java.util.Locale
 import kotlin.coroutines.resume
 
 /**
- * Launcher activity + routing state machine. See kotlin_gray_guide.mdc for
- * the tree, kotlin_launch_flow.mdc for the *when*, and kotlin_gray_pitfalls
- * for what any given branch is defending against.
+ * Launcher activity + routing state machine.
  *
  *  UNKNOWN (first launch)
  *    * offline & no push → OfflineActivity on the first frame. Nothing
  *      started, nothing persisted. The offline screen relaunches this
- *      Activity when the link is back (pitfalls #20).
+ *      Activity when the link is back.
  *    * has internet → ignite AppsFlyer → attribution + deep link → uplink
  *      POST → decide.
  *        ok+url    → STREAM → optional PromoActivity → StageActivity
  *        else      → the game. Persist NATIVE only when the endpoint
  *                    actually answered AND the request carried real
- *                    attribution (kotlin_launch_flow.mdc §5).
+ *                    attribution.
  *
  *  STREAM (was WebView last time)
  *    * cold push → StageActivity on the pushed URL.
@@ -53,8 +51,8 @@ import kotlin.coroutines.resume
  *      saved URL if we still have one, otherwise OfflineActivity.
  *
  *  NATIVE (was the game last time)
- *    * The game, always. Once native, stay native (kotlin_launch_flow.mdc
- *      §invariant), including if a push URL arrives for this install.
+ *    * The game, always. Once native, stay native — invariant of the flow —
+ *      including if a push URL arrives for this install.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -192,6 +190,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun continueStream() {
+        // Once the STREAM decision is on record and we have a cached
+        // target URL, subsequent launches must not be gated on the
+        // network: the routing itself does not need internet, and the
+        // WebView owns its own offline UI. This makes the second and
+        // every later launch open the shell directly, even offline.
+        if (!link.isConnected()) {
+            val savedUrl = store.target
+            if (!savedUrl.isNullOrBlank()) {
+                Tracer.i(TAG, "STREAM offline → open cached stage URL directly")
+                openStage(savedUrl)
+                return
+            }
+        }
+
         if (!ensureLink(cold = false)) return
 
         val cold = store.takeColdPush()
@@ -201,9 +213,7 @@ class MainActivity : AppCompatActivity() {
 
         // Always keep the stored URL as a fallback even if TTL has expired.
         // TTL means "prefer a fresh answer from the gate", not "refuse the
-        // cached URL as a last resort". Flutter template: readCachedLink()
-        // has no TTL guard — it falls through to _toWeb(cached) on any
-        // non-Stream reply, which is the only path that checks
+        // cached URL as a last resort" — the fallback path is what checks
         // shouldOfferPushInvite(). Guarding savedUrl by targetIsUsable()
         // was silently breaking the 3-day promo re-show: if the user moved
         // the clock forward (or the TTL genuinely expired) AND the gate
@@ -308,9 +318,9 @@ class MainActivity : AppCompatActivity() {
     private fun extractPushUrl(source: Intent): String? {
         // Intents authored by our own FluxPushService carry EXTRA_FROM_PUSH.
         // These URLs came from our authenticated FCM backend — trust them
-        // unconditionally (Flutter parity: push_hub.dart._onColdTap has no
-        // gate). Also promote the host into HostGate + persistence so any
-        // downstream check (WebView navigation, later pushes) admits it.
+        // unconditionally, no additional gate needed. Also promote the host
+        // into HostGate + persistence so any downstream check (WebView
+        // navigation, later pushes) admits it.
         val fromOwnService = source.getBooleanExtra(EXTRA_FROM_PUSH, false)
         val own = if (fromOwnService)
             source.getStringExtra(EXTRA_PUSH_URL)?.trim() else null
